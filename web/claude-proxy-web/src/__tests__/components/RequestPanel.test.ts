@@ -30,7 +30,7 @@ describe('RequestPanel', () => {
       response: {
         timestamp: '2024-01-15T10:00:01.000Z',
         statusCode: 200,
-        headers: {},
+        headers: {} as Record<string, string>,
         body: { id: 'msg-1', content: 'hi' },
         responseTime: 500,
       },
@@ -42,14 +42,14 @@ describe('RequestPanel', () => {
       request: {
         method: 'GET',
         path: '/v1/models',
-        headers: {},
+        headers: {} as Record<string, string>,
         query: {},
         body: null,
       },
       response: {
         timestamp: '2024-01-15T10:00:06.000Z',
         statusCode: 200,
-        headers: {},
+        headers: {} as Record<string, string>,
         body: { data: [] },
         responseTime: 200,
       },

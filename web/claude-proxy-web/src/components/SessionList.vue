@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { listSessions, formatDate, formatDuration, clearAllLogs, openLogDir, subscribeLogEvents, type Session } from '../api'
 
 const props = defineProps<{
