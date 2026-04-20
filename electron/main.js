@@ -3,7 +3,6 @@ const path = require('path');
 const http = require('http');
 const { exec } = require('child_process');
 const util = require('util');
-const isDev = require('electron-is-dev');
 
 const execPromise = util.promisify(exec);
 
@@ -159,22 +158,36 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false,
     },
     titleBarStyle: 'default',
     show: false,
   });
 
   // 加载前端页面
-  if (isDev) {
+  const isDevelopment = !app.isPackaged;
+  console.log('[Electron] isDevelopment:', isDevelopment, 'isPackaged:', app.isPackaged);
+
+  if (isDevelopment) {
     // 开发模式：加载 Vite 开发服务器
+    console.log('[Electron] 开发模式：加载 http://localhost:5173');
     mainWindow.loadURL('http://localhost:5173');
   } else {
     // 生产模式：加载打包后的静态文件
-    mainWindow.loadFile(path.join(__dirname, '../web/claude-proxy-web/dist/index.html'));
+    const filePath = path.join(__dirname, '../web/claude-proxy-web/dist/index.html');
+    console.log('[Electron] 生产模式：加载文件', filePath);
+    mainWindow.loadFile(filePath);
   }
+
+  // 监听加载失败事件
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error('[Electron] 页面加载失败:', errorCode, errorDescription, validatedURL);
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    // 打开 DevTools 便于排查问题（生产环境可注释）
+    mainWindow.webContents.openDevTools();
     // 窗口就绪后推送当前状态
     mainWindow.webContents.send('server:status-change', {
       status: serverStatus,

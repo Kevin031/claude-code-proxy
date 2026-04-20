@@ -95,5 +95,9 @@
       ],
       "category": "Development"
     }
+  },
+  "volta": {
+    "node": "20.19.0",
+    "pnpm": "7.33.7"
   }
 }
