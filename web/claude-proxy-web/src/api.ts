@@ -243,3 +243,36 @@ export function onServerStatusChange(callback: (statusInfo: ServerStatusInfo) =>
   }
   return null;
 }
+
+export interface LogEvent {
+  type: 'connected' | 'log_updated';
+  requestId?: string;
+  timestamp?: string;
+}
+
+/**
+ * 订阅 SSE 日志推送事件
+ * @param onEvent 事件回调
+ * @returns 取消订阅函数
+ */
+export function subscribeLogEvents(onEvent: (event: LogEvent) => void): (() => void) {
+  const url = `${API_BASE}/logs/events`;
+  const eventSource = new EventSource(url);
+
+  eventSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      onEvent(data);
+    } catch {
+      // 忽略无法解析的消息（如心跳注释）
+    }
+  };
+
+  eventSource.onerror = () => {
+    // 连接出错时会自动重连，无需额外处理
+  };
+
+  return () => {
+    eventSource.close();
+  };
+}

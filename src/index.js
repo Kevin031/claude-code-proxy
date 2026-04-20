@@ -6,6 +6,7 @@ const ProxyService = require('./proxy/proxy');
 const loggerMiddleware = require('./middleware/logger');
 const { errorHandlerMiddleware, notFoundMiddleware } = require('./middleware/errorHandler');
 const logsRouter = require('./routes/logs');
+const eventBus = require('./utils/events');
 
 /**
  * 安全序列化函数，处理循环引用问题
@@ -59,6 +60,45 @@ function createApp() {
 
   // 日志查询路由
   app.use('/logs', logsRouter);
+
+  // SSE 日志推送端点
+  app.get('/logs/events', (req, res) => {
+    // 设置 SSE 响应头
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    // 发送初始连接成功消息
+    res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+    // 监听日志写入事件
+    const onLogWritten = (logData) => {
+      const event = {
+        type: 'log_updated',
+        requestId: logData.requestId,
+        timestamp: logData.timestamp,
+      };
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    eventBus.on('log:written', onLogWritten);
+
+    // 清理：客户端断开连接时移除监听器
+    req.on('close', () => {
+      eventBus.off('log:written', onLogWritten);
+    });
+
+    // 定期发送心跳保持连接
+    const heartbeat = setInterval(() => {
+      res.write(':heartbeat\n\n');
+    }, 30000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+    });
+  });
 
   // 代理路由 - 捕获所有请求
   app.all('*', async (req, res) => {

@@ -198,6 +198,20 @@ function onSearchInputKeydown(e: KeyboardEvent) {
     }
   }
 }
+
+function downloadJson() {
+  const jsonStr = JSON.stringify(props.data, null, 2)
+  const blob = new Blob([jsonStr], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'data.json'
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 </script>
 
 <template>
@@ -220,6 +234,17 @@ function onSearchInputKeydown(e: KeyboardEvent) {
       theme="light"
       class="custom-json-tree"
     />
+
+    <!-- 下载按钮 -->
+    <div class="jv-download-box" @mousedown.stop>
+      <button class="jv-download-btn" title="下载 JSON" @click="downloadJson">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </button>
+    </div>
 
     <!-- 搜索框 -->
     <div v-if="showSearch" class="jv-search-box" @mousedown.stop>
@@ -258,6 +283,34 @@ function onSearchInputKeydown(e: KeyboardEvent) {
 </template>
 
 <style>
+/* 下载按钮 */
+.jv-download-box {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
+
+.jv-download-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.jv-download-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
 /* 搜索框样式 */
 .json-viewer-wrapper {
   position: relative;

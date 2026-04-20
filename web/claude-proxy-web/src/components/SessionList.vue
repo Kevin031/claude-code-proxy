@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { listSessions, formatDate, formatDuration, clearAllLogs, type Session } from '../api'
+import { listSessions, formatDate, formatDuration, clearAllLogs, subscribeLogEvents, type Session } from '../api'
 
 const props = defineProps<{
   currentDate: string
@@ -16,8 +16,8 @@ const sessions = ref<Session[]>([])
 const loading = ref(false)
 const error = ref('')
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null
 let isRequesting = false
+let unsubscribeEvents: (() => void) | null = null
 
 function getToday(): string {
   return new Date().toISOString().split('T')[0]
@@ -65,19 +65,19 @@ async function handleClearLogs() {
   }
 }
 
-function startAutoRefresh() {
-  if (refreshTimer) return
-  refreshTimer = setInterval(() => {
-    // 页面不可见时跳过刷新
-    if (document.hidden) return
-    loadSessions(true)
-  }, 2000)
+function startEventSubscription() {
+  if (unsubscribeEvents) return
+  unsubscribeEvents = subscribeLogEvents((event) => {
+    if (event.type === 'log_updated') {
+      loadSessions(true)
+    }
+  })
 }
 
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
+function stopEventSubscription() {
+  if (unsubscribeEvents) {
+    unsubscribeEvents()
+    unsubscribeEvents = null
   }
 }
 
@@ -90,11 +90,11 @@ watch(() => props.currentDate, () => loadSessions(false), { immediate: true })
 
 onMounted(() => {
   loadSessions(false)
-  startAutoRefresh()
+  startEventSubscription()
 })
 
 onUnmounted(() => {
-  stopAutoRefresh()
+  stopEventSubscription()
 })
 </script>
 

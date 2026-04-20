@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const Logger = require('../utils/logger');
 const config = require('../config');
+const eventBus = require('../utils/events');
 
 // 创建日志工具实例
 const logger = new Logger(config.get('logDir'));
@@ -100,6 +101,8 @@ const loggerMiddleware = async (req, res, next) => {
     setImmediate(async () => {
       try {
         await logger.writeLog(logData);
+        // 触发日志写入完成事件，通知 SSE 客户端
+        eventBus.emit('log:written', logData);
       } catch (error) {
         console.error('写入日志失败:', error);
       }
