@@ -30,3 +30,6 @@ yarn-error.log*
 # 临时文件
 *.tmp
 .cache/
+release
+web/claude-proxy-web/.playwright-cli
+.playwright-mcp

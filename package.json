@@ -2,30 +2,98 @@
   "name": "api-proxy",
   "version": "1.0.0",
   "description": "通用 API 代理服务器 - 支持任意路径转发",
-  "main": "src/index.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "dev:web": "pnpm --filter claude-proxy-web dev",
+    "dev:all": "concurrently \"pnpm dev\" \"pnpm dev:web\"",
+    "electron": "pnpm build:web && electron .",
+    "electron:dev": "concurrently \"pnpm dev\" \"pnpm dev:web\" \"wait-on http://localhost:5173 && electron .\"",
+    "build:web": "pnpm --filter claude-proxy-web build",
+    "build": "pnpm build:web && electron-builder",
+    "dist": "pnpm build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "proxy",
     "api",
     "glm",
-    "anthropic"
+    "anthropic",
+    "electron"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
     "axios": "^1.6.0",
-    "dotenv": "^16.3.1",
     "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "electron-is-dev": "^3.0.1",
+    "express": "^4.18.2",
     "helmet": "^7.1.0",
-    "uuid": "^9.0.1",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "concurrently": "^9.2.1",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
+    "electron-store": "^11.0.2",
+    "nodemon": "^3.0.2",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.claude-proxy.app",
+    "productName": "Claude Proxy",
+    "publish": null,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "electron/**/*",
+      "web/claude-proxy-web/dist/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development"
+    }
   }
 }

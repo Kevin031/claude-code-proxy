@@ -1,0 +1,130 @@
+:root {
+  /* 调色板 - 浅色开发工具主题 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f8fa;
+  --bg-tertiary: #f0f1f5;
+  --bg-hover: #e8e9ed;
+  --bg-active: #dbeafe;
+  --bg-code: #f6f8fa;
+  --bg-error: #fef2f2;
+  --bg-success: #f0fdf4;
+  --bg-warning: #fffbeb;
+
+  --text-primary: #1f2328;
+  --text-secondary: #59636e;
+  --text-tertiary: #8c959f;
+  --text-link: #0969da;
+  --text-error: #cf222e;
+  --text-success: #1a7f37;
+  --text-warning: #9a6700;
+
+  --border-primary: #d1d5db;
+  --border-secondary: #e5e7eb;
+  --border-tertiary: #f0f1f5;
+
+  --accent-blue: #0969da;
+  --accent-blue-light: #dbeafe;
+  --accent-purple: #8250df;
+  --accent-green: #1a7f37;
+  --accent-red: #cf222e;
+  --accent-orange: #9a6700;
+
+  /* JSON 语法高亮 */
+  --json-key: #0550ae;
+  --json-string: #0a3069;
+  --json-number: #0550ae;
+  --json-boolean: #0550ae;
+  --json-null: #0550ae;
+  --json-bracket: #1f2328;
+  --json-colon: #59636e;
+
+  /* HTTP 方法颜色 */
+  --method-get: #1a7f37;
+  --method-get-bg: #dafbe1;
+  --method-post: #9a6700;
+  --method-post-bg: #fff8c5;
+  --method-put: #0969da;
+  --method-put-bg: #ddf4ff;
+  --method-delete: #cf222e;
+  --method-delete-bg: #ffebe9;
+  --method-patch: #bf3989;
+  --method-patch-bg: #ffeff7;
+
+  /* 状态码颜色 */
+  --status-2xx: #1a7f37;
+  --status-2xx-bg: #dafbe1;
+  --status-3xx: #9a6700;
+  --status-3xx-bg: #fff8c5;
+  --status-4xx: #cf222e;
+  --status-4xx-bg: #ffebe9;
+  --status-5xx: #cf222e;
+  --status-5xx-bg: #ffebe9;
+
+  --font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* 通用工具类 */
+.text-mono {
+  font-family: var(--font-mono);
+}
+
+.text-small {
+  font-size: 12px;
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-tertiary {
+  color: var(--text-tertiary);
+}
+
+.border-bottom {
+  border-bottom: 1px solid var(--border-secondary);
+}

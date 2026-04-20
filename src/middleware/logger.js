@@ -3,13 +3,19 @@ const Logger = require('../utils/logger');
 const config = require('../config');
 
 // 创建日志工具实例
-const logger = new Logger(config.logDir);
+const logger = new Logger(config.get('logDir'));
 
 /**
  * 日志中间件
  * 拦截请求和响应，记录完整的请求-响应对到 YAML 文件
  */
 const loggerMiddleware = async (req, res, next) => {
+  // 跳过内部查询路由和健康检查，只记录代理请求
+  if (req.path.startsWith('/logs') || req.path === '/health') {
+    req.requestId = uuidv4();
+    return next();
+  }
+
   // 生成唯一的请求 ID
   const requestId = uuidv4();
   const requestTimestamp = new Date().toISOString();

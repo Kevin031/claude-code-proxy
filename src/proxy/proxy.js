@@ -9,8 +9,8 @@ class ProxyService {
   constructor() {
     // 创建 axios 实例
     this.client = axios.create({
-      baseURL: config.targetApiUrl,
-      timeout: config.timeout,
+      baseURL: config.get('targetApiUrl'),
+      timeout: config.get('timeout'),
       // 不自动跟随重定向
       maxRedirects: 0,
       // 验证 SSL
@@ -29,7 +29,7 @@ class ProxyService {
     try {
       // 构建目标路径：拼接目标 API 基础 URL 和原始请求路径
       // 确保基础 URL 末尾和路径开头不会重复 /
-      const baseUrl = config.targetApiUrl.replace(/\/$/, '');
+      const baseUrl = config.get('targetApiUrl').replace(/\/$/, '');
       const requestPath = req.path.startsWith('/') ? req.path : `/${req.path}`;
       const targetUrl = `${baseUrl}${requestPath}`;
 
@@ -73,13 +73,24 @@ class ProxyService {
       console.log(`  请求 ID   : ${req.requestId || 'N/A'}`);
       console.log('-------------------------------------------------------------');
 
+      // 安全提取响应体数据
+      let responseBody = response.data;
+      // 如果响应体是对象，进行深拷贝以避免潜在的循环引用
+      if (responseBody && typeof responseBody === 'object' && !Buffer.isBuffer(responseBody)) {
+        try {
+          responseBody = JSON.parse(JSON.stringify(responseBody));
+        } catch (error) {
+          console.warn('响应体数据深拷贝失败，使用原始数据:', error.message);
+        }
+      }
+
       // 返回标准化响应对象
       return {
         success: true,
         statusCode: response.status,
         statusMessage: response.statusText,
         headers: response.headers,
-        body: response.data,
+        body: responseBody,
         responseTime,
       };
     } catch (error) {
@@ -98,12 +109,23 @@ class ProxyService {
         console.log(`  请求 ID   : ${req.requestId || 'N/A'}`);
         console.log('-------------------------------------------------------------');
 
+        // 安全提取错误响应体数据
+        let errorResponseBody = error.response.data;
+        if (errorResponseBody && typeof errorResponseBody === 'object' && !Buffer.isBuffer(errorResponseBody)) {
+          try {
+            errorResponseBody = JSON.parse(JSON.stringify(errorResponseBody));
+          } catch (stringifyError) {
+            console.warn('错误响应体数据深拷贝失败:', stringifyError.message);
+            errorResponseBody = null;
+          }
+        }
+
         return {
           success: false,
           statusCode: error.response.status,
           statusMessage: error.response.statusText,
           headers: error.response.headers,
-          body: error.response.data,
+          body: errorResponseBody,
           responseTime,
           error: {
             message: error.message,

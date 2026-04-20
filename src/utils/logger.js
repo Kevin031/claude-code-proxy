@@ -69,13 +69,43 @@ class Logger {
   }
 
   /**
+   * 安全序列化，处理循环引用
+   * @param {*} data - 要序列化的数据
+   * @returns {*} 安全的数据对象
+   */
+  safeSerialize(data) {
+    const seen = new WeakSet();
+    return JSON.parse(JSON.stringify(data, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          return '[Circular]';
+        }
+        seen.add(value);
+      }
+      // 过滤掉特殊类型
+      if (value && typeof value === 'object') {
+        // 过滤掉可能的内部对象
+        if (value.constructor && value.constructor.name === 'TLSSocket') {
+          return '[TLSSocket]';
+        }
+        if (value.constructor && value.constructor.name === 'HTTPParser') {
+          return '[HTTPParser]';
+        }
+      }
+      return value;
+    }));
+  }
+
+  /**
    * 将对象序列化为 YAML 格式
    * @param {Object} data - 要序列化的数据
    * @returns {string} YAML 字符串
    */
   serializeToYaml(data) {
     try {
-      return yaml.dump(data, {
+      // 先进行安全序列化，处理循环引用
+      const safeData = this.safeSerialize(data);
+      return yaml.dump(safeData, {
         indent: 2,
         lineWidth: -1,
         noRefs: true,
@@ -84,7 +114,13 @@ class Logger {
     } catch (error) {
       // 如果 YAML 序列化失败，回退到 JSON
       console.error('YAML 序列化失败，使用 JSON 格式:', error.message);
-      return JSON.stringify(data, null, 2);
+      try {
+        const safeData = this.safeSerialize(data);
+        return JSON.stringify(safeData, null, 2);
+      } catch (jsonError) {
+        console.error('JSON 序列化也失败:', jsonError.message);
+        return JSON.stringify({ error: '无法序列化日志数据' }, null, 2);
+      }
     }
   }
 
@@ -154,6 +190,33 @@ class Logger {
       }
     } catch (error) {
       console.error('清理日志失败:', error);
+    }
+  }
+
+  /**
+   * 清空所有日志（删除日志目录下所有日期子目录）
+   */
+  async clearAllLogs() {
+    try {
+      const dirs = await fs.readdir(this.logDir, { withFileTypes: true });
+      let deletedCount = 0;
+
+      for (const dir of dirs) {
+        if (!dir.isDirectory()) continue;
+
+        const dirPath = path.join(this.logDir, dir.name);
+        const dateMatch = dir.name.match(/^(\d{4}-\d{2}-\d{2})$/);
+        if (!dateMatch) continue;
+
+        await fs.rm(dirPath, { recursive: true, force: true });
+        deletedCount++;
+      }
+
+      console.log(`已清空日志，删除 ${deletedCount} 个日期目录`);
+      return { success: true, deletedCount };
+    } catch (error) {
+      console.error('清空日志失败:', error);
+      return { success: false, error: error.message };
     }
   }
 }
