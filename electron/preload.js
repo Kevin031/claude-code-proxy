@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('server:status-change', handler);
   },
 
+  // 打开文件管理器
+  openPath: (targetPath) => ipcRenderer.invoke('shell:open-path', targetPath),
+
   // 平台信息
   platform: process.platform,
 });

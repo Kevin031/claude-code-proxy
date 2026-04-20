@@ -1,10 +1,5 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
-const http = require('http');
-const { exec } = require('child_process');
-const util = require('util');
-
-const execPromise = util.promisify(exec);
 
 // 单实例锁 - 防止多个 Electron 实例竞争同一个端口
 const gotTheLock = app.requestSingleInstanceLock();
@@ -21,12 +16,17 @@ app.on('second-instance', () => {
   }
 });
 
+// 设置 userData 路径为项目名，确保日志存放目录一致
+const defaultUserData = app.getPath('userData');
+const userDataPath = path.join(path.dirname(defaultUserData), 'claude-code-proxy');
+app.setPath('userData', userDataPath);
+
 // 必须先加载配置并设置日志路径，再加载其他依赖模块
 const config = require('../src/config');
-const userDataPath = app.getPath('userData');
 config.setUserDataPath(userDataPath);
 
 const { startServer } = require('../src/index');
+const { killProcessByPort, waitForPortRelease, checkPortInUse } = require('../src/utils/portCleaner');
 
 // 保持全局引用，防止垃圾回收
 let mainWindow = null;
@@ -37,43 +37,6 @@ let serverStatus = 'stopped'; // 'stopped' | 'starting' | 'running' | 'error'
 let serverError = null;
 let serverLogs = [];
 const MAX_LOGS = 500;
-
-/**
- * 检查端口是否被占用
- * @param {number} port - 端口号
- * @returns {Promise<boolean>}
- */
-function checkPortInUse(port) {
-  return new Promise((resolve) => {
-    const req = http.get(`http://localhost:${port}/health`, { timeout: 1000 }, () => {
-      req.destroy();
-      resolve(true);
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-/**
- * 等待端口释放（用于旧实例关闭后端口回收的等待）
- * @param {number} port - 端口号
- * @param {number} maxWaitMs - 最大等待时间（毫秒）
- * @param {number} intervalMs - 检查间隔（毫秒）
- * @returns {Promise<boolean>} 是否成功释放
- */
-async function waitForPortRelease(port, maxWaitMs = 5000, intervalMs = 500) {
-  const startTime = Date.now();
-  while (Date.now() - startTime < maxWaitMs) {
-    const inUse = await checkPortInUse(port);
-    if (!inUse) return true;
-    console.log(`端口 ${port} 仍被占用，等待释放...`);
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  return false;
-}
 
 /**
  * 添加日志到缓冲区并推送给前端
@@ -149,11 +112,22 @@ console.info = function (...args) {
  * 创建主窗口
  */
 function createWindow() {
+  // 根据平台选择图标文件
+  let iconFile = 'icon.icns';
+  if (process.platform === 'win32') {
+    iconFile = 'icon.ico';
+  } else if (process.platform === 'linux') {
+    iconFile = 'icon_512x512.png';
+  }
+
+  const windowIcon = path.join(__dirname, '../icons', iconFile);
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 900,
     minHeight: 600,
+    icon: windowIcon,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -186,8 +160,6 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    // 打开 DevTools 便于排查问题（生产环境可注释）
-    mainWindow.webContents.openDevTools();
     // 窗口就绪后推送当前状态
     mainWindow.webContents.send('server:status-change', {
       status: serverStatus,
@@ -213,7 +185,6 @@ async function startBackend() {
   setServerStatus('starting');
 
   // 设置日志目录为 Electron userData
-  const userDataPath = app.getPath('userData');
   config.setUserDataPath(userDataPath);
 
   const port = config.get('port');
@@ -221,13 +192,21 @@ async function startBackend() {
   // 检查端口是否被占用（可能是上次关闭未干净的旧实例）
   const inUse = await checkPortInUse(port);
   if (inUse) {
-    console.log(`端口 ${port} 被占用，等待旧实例释放...`);
-    const released = await waitForPortRelease(port);
-    if (!released) {
-      const error = `端口 ${port} 被其他程序占用，请关闭占用该端口的程序后重试。\n可尝试运行: lsof -ti:${port} | xargs kill -9`;
-      console.error(error);
-      setServerStatus('error', error);
-      return { success: false, error };
+    console.log(`端口 ${port} 被占用，尝试清理占用进程...`);
+    const killResult = await killProcessByPort(port);
+    if (killResult.success) {
+      console.log(`已清理占用进程: ${killResult.message}`);
+      // 等待端口释放
+      const released = await waitForPortRelease(port, 8000, 500);
+      if (!released) {
+        const error = `端口 ${port} 释放超时，请手动检查后重试`;
+        console.error(error);
+        setServerStatus('error', error);
+        return { success: false, error };
+      }
+      console.log(`端口 ${port} 已释放`);
+    } else {
+      console.warn(`清理进程失败: ${killResult.message}，继续尝试启动...`);
     }
   }
 
@@ -335,48 +314,12 @@ ipcMain.handle('server:clear-logs', async () => {
   return true;
 });
 
-/**
- * 根据端口杀掉占用进程
- * @param {number} port - 端口号
- * @returns {Promise<{ success: boolean; message: string }>}
- */
-async function killProcessByPort(port) {
-  try {
-    if (process.platform === 'win32') {
-      // Windows: 先查找 PID，再 taskkill
-      const { stdout } = await execPromise(`netstat -ano | findstr :${port}`);
-      const lines = stdout.trim().split('\n');
-      const pids = [...new Set(
-        lines
-          .map((line) => {
-            const parts = line.trim().split(/\s+/);
-            return parts[parts.length - 1];
-          })
-          .filter((pid) => pid && /^\d+$/.test(pid))
-      )];
-      if (pids.length === 0) {
-        return { success: false, message: `未找到占用端口 ${port} 的进程` };
-      }
-      for (const pid of pids) {
-        await execPromise(`taskkill /F /PID ${pid}`);
-      }
-      return { success: true, message: `已终止进程 (PID: ${pids.join(', ')})` };
-    } else {
-      // macOS / Linux
-      const { stdout } = await execPromise(`lsof -ti:${port}`);
-      const pids = stdout.trim().split('\n').filter(Boolean);
-      if (pids.length === 0) {
-        return { success: false, message: `未找到占用端口 ${port} 的进程` };
-      }
-      for (const pid of pids) {
-        await execPromise(`kill -9 ${pid}`);
-      }
-      return { success: true, message: `已终止进程 (PID: ${pids.join(', ')})` };
-    }
-  } catch (error) {
-    return { success: false, message: error.message || String(error) };
-  }
-}
+// IPC 通信：在文件管理器中打开路径
+ipcMain.handle('shell:open-path', async (event, targetPath) => {
+  const resolvedPath = targetPath || config.get('logDir');
+  const result = await shell.openPath(resolvedPath);
+  return { success: result === '', error: result || null };
+});
 
 // IPC 通信：根据端口杀进程
 ipcMain.handle('server:kill-process', async (event, port) => {
@@ -400,6 +343,12 @@ ipcMain.handle('server:kill-process', async (event, port) => {
 
 // 应用生命周期
 app.whenReady().then(async () => {
+  // 设置 macOS Dock 图标 - 使用标准 128x128 尺寸
+  if (process.platform === 'darwin') {
+    const iconPath = path.join(__dirname, '../icons/icon_128x128.png');
+    app.dock.setIcon(iconPath);
+  }
+
   // 先创建窗口，再尝试启动服务
   // 这样即使服务启动失败，用户也能看到界面和错误信息
   createWindow();

@@ -1,12 +1,14 @@
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
+const { PassThrough } = require('stream');
 const config = require('./config');
 const ProxyService = require('./proxy/proxy');
 const loggerMiddleware = require('./middleware/logger');
 const { errorHandlerMiddleware, notFoundMiddleware } = require('./middleware/errorHandler');
 const logsRouter = require('./routes/logs');
 const eventBus = require('./utils/events');
+const { cleanPort } = require('./utils/portCleaner');
 
 /**
  * 安全序列化函数，处理循环引用问题
@@ -123,6 +125,25 @@ function createApp() {
       // 设置状态码
       res.status(proxyResponse.statusCode);
 
+      // 流式响应直接 pipe 给客户端，避免序列化流对象（含循环引用）
+      if (proxyResponse.isStream && proxyResponse.stream) {
+        // 用 PassThrough 分流：一边给客户端，一边收集日志内容
+        const passThrough = new PassThrough();
+        const chunks = [];
+
+        passThrough.on('data', (chunk) => {
+          chunks.push(chunk);
+        });
+
+        passThrough.on('end', () => {
+          // 将收集到的流内容存入 res.locals，供 loggerMiddleware 使用
+          res.locals.streamBody = Buffer.concat(chunks).toString('utf8');
+        });
+
+        proxyResponse.stream.pipe(passThrough).pipe(res);
+        return;
+      }
+
       // 发送响应体
       if (proxyResponse.body !== null && proxyResponse.body !== undefined) {
         try {
@@ -168,14 +189,23 @@ function createApp() {
  * @param {Object} overrides - 可选的配置覆盖
  * @returns {Promise<{server: http.Server, app: express.Application}>} 服务器实例和应用
  */
-function startServer(overrides = {}) {
-  return new Promise((resolve, reject) => {
-    // 应用配置覆盖
-    if (overrides && Object.keys(overrides).length > 0) {
-      config.update(overrides);
-    }
+async function startServer(overrides = {}) {
+  // 应用配置覆盖
+  if (overrides && Object.keys(overrides).length > 0) {
+    config.update(overrides);
+  }
 
-    const currentConfig = config.getAll();
+  const currentConfig = config.getAll();
+
+  // 启动前先清理端口占用
+  console.log(`检查端口 ${currentConfig.port} 占用情况...`);
+  const cleanResult = await cleanPort(currentConfig.port);
+  if (!cleanResult.success) {
+    console.error(`端口清理失败: ${cleanResult.message}`);
+    throw new Error(cleanResult.message);
+  }
+
+  return new Promise((resolve, reject) => {
     const app = createApp();
 
     const server = app.listen(currentConfig.port, () => {

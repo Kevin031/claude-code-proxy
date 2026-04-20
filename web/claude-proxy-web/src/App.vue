@@ -7,7 +7,6 @@ import { getServerStatus, startServer, stopServer, getServerLogs, clearServerLog
 import type { ServerStatusInfo, ServerLogEntry } from './api'
 
 const selectedSessionId = ref<string | null>(null)
-const currentDate = ref<string>('')
 const showSettings = ref(false)
 
 const sidebarWidth = ref(320)
@@ -17,11 +16,6 @@ const logPanelLeft = computed(() => `${sidebarWidth.value + 5}px`)
 
 function handleSelectSession(sessionId: string) {
   selectedSessionId.value = sessionId
-}
-
-function handleDateChange(date: string) {
-  currentDate.value = date
-  selectedSessionId.value = null
 }
 
 function startDragSidebar(e: MouseEvent) {
@@ -34,7 +28,7 @@ function startDragSidebar(e: MouseEvent) {
 
   function onMove(ev: MouseEvent) {
     const delta = ev.clientX - startX
-    sidebarWidth.value = Math.max(220, Math.min(500, startWidth + delta))
+    sidebarWidth.value = Math.max(320, Math.min(500, startWidth + delta))
   }
 
   function onUp() {
@@ -260,10 +254,9 @@ onUnmounted(() => {
         </button>
       </div>
       <SessionList
-        :current-date="currentDate"
         :selected-session-id="selectedSessionId"
         @select="handleSelectSession"
-        @date-change="handleDateChange"
+        @cleared="selectedSessionId = null"
       />
     </aside>
     <div
@@ -278,7 +271,6 @@ onUnmounted(() => {
       <RequestPanel
         v-if="selectedSessionId"
         :session-id="selectedSessionId"
-        :date="currentDate"
       />
       <div v-else class="empty-state">
         <div class="empty-icon">&#8592;</div>

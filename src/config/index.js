@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 
 // 检测是否在 Electron 主进程中
 const isElectron = process.versions && process.versions.electron && process.type === 'browser';
@@ -116,6 +117,29 @@ function setUserDataPath(userDataPath) {
     store.set('logDir', logsPath);
   } else {
     userConfig.logDir = logsPath;
+  }
+
+  // macOS 下在项目根目录创建软链接，方便在 VS Code 中查看日志
+  if (process.platform === 'darwin') {
+    try {
+      const projectRoot = path.join(__dirname, '../..');
+      const symlinkPath = path.join(projectRoot, 'logs');
+      // 如果已存在且不是软链接，先删除
+      if (fs.existsSync(symlinkPath) && !fs.lstatSync(symlinkPath).isSymbolicLink()) {
+        fs.rmSync(symlinkPath, { recursive: true, force: true });
+      }
+      // 确保目标日志目录存在
+      if (!fs.existsSync(logsPath)) {
+        fs.mkdirSync(logsPath, { recursive: true });
+      }
+      // 创建软链接
+      if (!fs.existsSync(symlinkPath)) {
+        fs.symlinkSync(logsPath, symlinkPath, 'dir');
+        console.log('[Config] 日志软链接已创建:', symlinkPath, '->', logsPath);
+      }
+    } catch (error) {
+      console.warn('[Config] 创建日志软链接失败:', error.message);
+    }
   }
 }
 

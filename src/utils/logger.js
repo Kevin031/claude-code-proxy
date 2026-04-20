@@ -25,31 +25,6 @@ class Logger {
   }
 
   /**
-   * 获取当前日期的日志目录
-   * @returns {string} 日期目录路径
-   */
-  getDateDir() {
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
-    return path.join(this.logDir, dateStr);
-  }
-
-  /**
-   * 确保日期日志目录存在
-   */
-  async ensureDateDir() {
-    const dateDir = this.getDateDir();
-    try {
-      await fs.mkdir(dateDir, { recursive: true });
-    } catch (error) {
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-    }
-    return dateDir;
-  }
-
-  /**
    * 生成日志文件名
    * 格式: YYYYMMDD-HHMMSS-shortId.yaml
    * @param {string} requestId - 请求唯一标识符
@@ -135,12 +110,12 @@ class Logger {
    */
   async writeLog(logData) {
     try {
-      // 确保日期目录存在
-      const dateDir = await this.ensureDateDir();
+      // 确保日志目录存在
+      await this.ensureLogDir();
 
       // 生成日志文件名
       const fileName = this.generateLogFileName(logData.requestId);
-      const filePath = path.join(dateDir, fileName);
+      const filePath = path.join(this.logDir, fileName);
 
       // 序列化为 YAML
       const yamlContent = this.serializeToYaml(logData);
@@ -166,26 +141,17 @@ class Logger {
       const now = Date.now();
       const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
 
-      // 读取日志目录下的所有子目录
-      const dirs = await fs.readdir(this.logDir, { withFileTypes: true });
+      const files = await fs.readdir(this.logDir);
 
-      for (const dir of dirs) {
-        if (!dir.isDirectory()) continue;
+      for (const file of files) {
+        if (!file.endsWith('.yaml')) continue;
 
-        const dirPath = path.join(this.logDir, dir.name);
+        const filePath = path.join(this.logDir, file);
+        const stat = await fs.stat(filePath);
 
-        // 检查目录名称是否为日期格式
-        const dateMatch = dir.name.match(/^(\d{4}-\d{2}-\d{2})$/);
-        if (!dateMatch) continue;
-
-        // 计算目录日期与当前时间的差值
-        const dirDate = new Date(dir.name);
-        const dirTime = dirDate.getTime();
-
-        if (now - dirTime > retentionMs) {
-          // 删除过期目录
-          await fs.rm(dirPath, { recursive: true, force: true });
-          console.log(`已删除过期日志目录: ${dirPath}`);
+        if (now - stat.mtime.getTime() > retentionMs) {
+          await fs.unlink(filePath);
+          console.log(`已删除过期日志: ${file}`);
         }
       }
     } catch (error) {
@@ -194,25 +160,22 @@ class Logger {
   }
 
   /**
-   * 清空所有日志（删除日志目录下所有日期子目录）
+   * 清空所有日志
    */
   async clearAllLogs() {
     try {
-      const dirs = await fs.readdir(this.logDir, { withFileTypes: true });
+      const files = await fs.readdir(this.logDir);
       let deletedCount = 0;
 
-      for (const dir of dirs) {
-        if (!dir.isDirectory()) continue;
+      for (const file of files) {
+        if (!file.endsWith('.yaml')) continue;
 
-        const dirPath = path.join(this.logDir, dir.name);
-        const dateMatch = dir.name.match(/^(\d{4}-\d{2}-\d{2})$/);
-        if (!dateMatch) continue;
-
-        await fs.rm(dirPath, { recursive: true, force: true });
+        const filePath = path.join(this.logDir, file);
+        await fs.unlink(filePath);
         deletedCount++;
       }
 
-      console.log(`已清空日志，删除 ${deletedCount} 个日期目录`);
+      console.log(`已清空日志，删除 ${deletedCount} 个文件`);
       return { success: true, deletedCount };
     } catch (error) {
       console.error('清空日志失败:', error);

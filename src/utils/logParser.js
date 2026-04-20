@@ -48,31 +48,18 @@ class LogParser {
   }
 
   /**
-   * 获取指定日期的日志目录路径
-   * @param {string} date - 日期字符串 YYYY-MM-DD
-   * @returns {string} 日志目录路径
-   */
-  getDateLogDir(date) {
-    return path.join(this.logDir, date);
-  }
-
-  /**
-   * 扫描指定日期的日志目录，获取所有日志文件
-   * @param {string} date - 日期字符串 YYYY-MM-DD，默认今天
+   * 扫描日志目录，获取所有日志文件
    * @returns {Promise<string[]>} 日志文件路径数组
    */
-  async scanLogFiles(date = null) {
-    const targetDate = date || new Date().toISOString().split('T')[0];
-    const dateDir = this.getDateLogDir(targetDate);
-
+  async scanLogFiles() {
     try {
-      const files = await fs.readdir(dateDir);
+      const files = await fs.readdir(this.logDir);
       return files
         .filter(file => file.endsWith('.yaml'))
-        .map(file => path.join(dateDir, file));
+        .map(file => path.join(this.logDir, file));
     } catch (error) {
       if (error.code === 'ENOENT') {
-        // 目录不存在是正常情况（清空日志后或当天无请求），静默返回空数组
+        // 目录不存在是正常情况，静默返回空数组
         return [];
       }
       throw error;
@@ -80,12 +67,11 @@ class LogParser {
   }
 
   /**
-   * 解析指定日期的所有日志文件
-   * @param {string} date - 日期字符串 YYYY-MM-DD
+   * 解析所有日志文件
    * @returns {Promise<Object[]>} 解析后的日志数组
    */
-  async parseLogsByDate(date) {
-    const logFiles = await this.scanLogFiles(date);
+  async parseAllLogs() {
+    const logFiles = await this.scanLogFiles();
     const logs = [];
 
     for (const filePath of logFiles) {
@@ -167,13 +153,12 @@ class LogParser {
   }
 
   /**
-   * 获取指定日期的所有会话
-   * @param {string} date - 日期字符串 YYYY-MM-DD
+   * 获取所有会话
    * @param {string} baseUrl - 基础 URL，用于构建详情链接
    * @returns {Promise<Object[]>} 会话摘要数组
    */
-  async getSessionsByDate(date, baseUrl = '') {
-    const logs = await this.parseLogsByDate(date);
+  async getSessions(baseUrl = '') {
+    const logs = await this.parseAllLogs();
     const sessionsMap = this.groupLogsBySession(logs);
 
     const sessions = [];
@@ -194,13 +179,11 @@ class LogParser {
   /**
    * 获取指定会话的详情
    * @param {string} sessionId - 会话 ID
-   * @param {string} date - 日期字符串 YYYY-MM-DD，默认今天
    * @param {string} baseUrl - 基础 URL，用于构建详情链接
    * @returns {Promise<Object|null>} 会话详情
    */
-  async getSessionById(sessionId, date = null, baseUrl = '') {
-    const targetDate = date || new Date().toISOString().split('T')[0];
-    const logs = await this.parseLogsByDate(targetDate);
+  async getSessionById(sessionId, baseUrl = '') {
+    const logs = await this.parseAllLogs();
 
     const sessionLogs = logs.filter(log => {
       const logSessionId = this.extractSessionId(log);
@@ -237,12 +220,10 @@ class LogParser {
    * 获取指定请求的完整详情
    * @param {string} sessionId - 会话 ID
    * @param {string} requestId - 请求 ID
-   * @param {string} date - 日期字符串 YYYY-MM-DD，默认今天
    * @returns {Promise<Object|null>} 请求详情
    */
-  async getRequestById(sessionId, requestId, date = null) {
-    const targetDate = date || new Date().toISOString().split('T')[0];
-    const logs = await this.parseLogsByDate(targetDate);
+  async getRequestById(sessionId, requestId) {
+    const logs = await this.parseAllLogs();
 
     const log = logs.find(l => {
       const logSessionId = this.extractSessionId(l);
@@ -265,12 +246,10 @@ class LogParser {
   /**
    * 获取指定会话的所有完整请求日志
    * @param {string} sessionId - 会话 ID
-   * @param {string} date - 日期字符串 YYYY-MM-DD，默认今天
    * @returns {Promise<Object[]|null>} 完整日志数组
    */
-  async getSessionRequests(sessionId, date = null) {
-    const targetDate = date || new Date().toISOString().split('T')[0];
-    const logs = await this.parseLogsByDate(targetDate);
+  async getSessionRequests(sessionId) {
+    const logs = await this.parseAllLogs();
 
     const sessionLogs = logs.filter(log => {
       const logSessionId = this.extractSessionId(log);
@@ -288,22 +267,47 @@ class LogParser {
   }
 
   /**
-   * 清空所有日志（删除日志目录下所有日期子目录）
+   * 获取指定请求的原始 YAML 日志内容
+   * @param {string} requestId - 请求 ID
+   * @returns {Promise<string|null>} 原始 YAML 内容，找不到返回 null
+   */
+  async getRawLogByRequestId(requestId) {
+    try {
+      const files = await fs.readdir(this.logDir);
+      const shortId = requestId.split('-')[0];
+
+      // 通过 shortId 匹配文件名
+      const targetFile = files.find(file =>
+        file.endsWith('.yaml') && file.includes(`-${shortId}.`)
+      );
+
+      if (!targetFile) {
+        return null;
+      }
+
+      const filePath = path.join(this.logDir, targetFile);
+      const content = await fs.readFile(filePath, 'utf8');
+      return content;
+    } catch (error) {
+      console.error('读取原始日志失败:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * 清空所有日志
    * @returns {Promise<{ success: boolean; deletedCount?: number; error?: string }>}
    */
   async clearAllLogs() {
     try {
-      const dirs = await fs.readdir(this.logDir, { withFileTypes: true });
+      const files = await fs.readdir(this.logDir);
       let deletedCount = 0;
 
-      for (const dir of dirs) {
-        if (!dir.isDirectory()) continue;
+      for (const file of files) {
+        if (!file.endsWith('.yaml')) continue;
 
-        const dirPath = path.join(this.logDir, dir.name);
-        const dateMatch = dir.name.match(/^(\d{4}-\d{2}-\d{2})$/);
-        if (!dateMatch) continue;
-
-        await fs.rm(dirPath, { recursive: true, force: true });
+        const filePath = path.join(this.logDir, file);
+        await fs.unlink(filePath);
         deletedCount++;
       }
 

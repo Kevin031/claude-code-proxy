@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { listSessions, formatDate, formatDuration, clearAllLogs, subscribeLogEvents, type Session } from '../api'
+import { listSessions, formatDate, formatDuration, clearAllLogs, openLogDir, subscribeLogEvents, type Session } from '../api'
 
 const props = defineProps<{
-  currentDate: string
   selectedSessionId: string | null
 }>()
 
 const emit = defineEmits<{
   select: [sessionId: string]
-  dateChange: [date: string]
+  cleared: []
 }>()
 
 const sessions = ref<Session[]>([])
@@ -18,10 +17,6 @@ const error = ref('')
 
 let isRequesting = false
 let unsubscribeEvents: (() => void) | null = null
-
-function getToday(): string {
-  return new Date().toISOString().split('T')[0]
-}
 
 async function loadSessions(isAuto = false) {
   // 避免并发请求
@@ -34,7 +29,7 @@ async function loadSessions(isAuto = false) {
   error.value = ''
 
   try {
-    const res = await listSessions(props.currentDate || undefined)
+    const res = await listSessions()
     // 按时间降序排列，最新的在最前面
     sessions.value = res.sessions.sort((a, b) => {
       const tA = new Date(a.timeSpan.start).getTime()
@@ -59,9 +54,18 @@ async function handleClearLogs() {
   try {
     const result = await clearAllLogs()
     sessions.value = []
-    alert(`已清空日志，删除 ${result.deletedCount} 个日期目录`)
+    emit('cleared')
+    alert(`已清空日志，删除 ${result.deletedCount} 个文件`)
   } catch (err: any) {
     alert('清空日志失败: ' + (err.message || '未知错误'))
+  }
+}
+
+async function handleOpenDir() {
+  try {
+    await openLogDir()
+  } catch (err: any) {
+    alert('打开目录失败: ' + (err.message || '未知错误'))
   }
 }
 
@@ -81,13 +85,6 @@ function stopEventSubscription() {
   }
 }
 
-function handleDateInput(e: Event) {
-  const value = (e.target as HTMLInputElement).value
-  emit('dateChange', value)
-}
-
-watch(() => props.currentDate, () => loadSessions(false), { immediate: true })
-
 onMounted(() => {
   loadSessions(false)
   startEventSubscription()
@@ -100,15 +97,15 @@ onUnmounted(() => {
 
 <template>
   <div class="session-list">
-    <div class="date-bar">
-      <input
-        type="date"
-        :value="currentDate || getToday()"
-        @input="handleDateInput"
-        class="date-input"
-      />
+    <div class="toolbar">
+      <span class="session-count">{{ sessions.length }} 个会话</span>
       <button class="refresh-btn" @click="loadSessions(false)" :disabled="loading" title="刷新">
         <span :class="{ spinning: loading }">&#x21bb;</span>
+      </button>
+      <button class="open-dir-btn" @click="handleOpenDir" title="在文件管理器中打开日志目录">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
       </button>
       <button class="clear-btn" @click="handleClearLogs" title="清空日志">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -164,7 +161,7 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.date-bar {
+.toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -173,21 +170,10 @@ onUnmounted(() => {
   background: var(--bg-primary);
 }
 
-.date-input {
+.session-count {
   flex: 1;
-  padding: 6px 10px;
-  border: 1px solid var(--border-primary);
-  border-radius: 6px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.date-input:focus {
-  border-color: var(--accent-blue);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .refresh-btn {
@@ -213,6 +199,25 @@ onUnmounted(() => {
 .refresh-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.open-dir-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.open-dir-btn:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
 }
 
 .clear-btn {

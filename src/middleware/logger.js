@@ -82,6 +82,11 @@ const loggerMiddleware = async (req, res, next) => {
     const responseTime = new Date(responseTimestamp).getTime();
     const responseDuration = responseTime - requestTime;
 
+    // 检测流式响应（SSE），优先使用 res.locals 中收集的流内容
+    const contentType = responseHeaders['content-type'];
+    const isStreamResponse = contentType && contentType.includes('text/event-stream');
+    const streamBody = res.locals?.streamBody;
+
     // 构建日志数据
     const logData = {
       requestId,
@@ -91,7 +96,7 @@ const loggerMiddleware = async (req, res, next) => {
         timestamp: responseTimestamp,
         statusCode: responseStatusCode,
         headers: responseHeaders,
-        body: responseData,
+        body: isStreamResponse && streamBody ? streamBody : responseData,
         responseTime: responseDuration,
       },
       error: null,

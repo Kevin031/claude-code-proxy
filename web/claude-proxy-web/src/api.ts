@@ -16,7 +16,6 @@ export interface Session {
 }
 
 export interface SessionListResponse {
-  date: string;
   sessions: Session[];
   count: number;
 }
@@ -65,7 +64,6 @@ export interface FullLogEntry {
 
 export interface SessionRequestsResponse {
   sessionId: string;
-  date: string;
   requests: FullLogEntry[];
   count: number;
 }
@@ -91,40 +89,55 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
-export function listSessions(date?: string): Promise<SessionListResponse> {
-  const url = date
-    ? `${API_BASE}/logs/sessions?date=${date}`
-    : `${API_BASE}/logs/sessions`;
-  return fetchJson<SessionListResponse>(url);
+export function listSessions(): Promise<SessionListResponse> {
+  return fetchJson<SessionListResponse>(`${API_BASE}/logs/sessions`);
 }
 
-export function getSessionDetail(id: string, date?: string): Promise<SessionDetail> {
-  const url = date
-    ? `${API_BASE}/logs/sessions/${id}?date=${date}`
-    : `${API_BASE}/logs/sessions/${id}`;
-  return fetchJson<SessionDetail>(url);
+export function getSessionDetail(id: string): Promise<SessionDetail> {
+  return fetchJson<SessionDetail>(`${API_BASE}/logs/sessions/${id}`);
 }
 
-export function getSessionRequests(id: string, date?: string): Promise<SessionRequestsResponse> {
-  const url = date
-    ? `${API_BASE}/logs/sessions/${id}/requests?date=${date}`
-    : `${API_BASE}/logs/sessions/${id}/requests`;
-  return fetchJson<SessionRequestsResponse>(url);
+export function getSessionRequests(id: string): Promise<SessionRequestsResponse> {
+  return fetchJson<SessionRequestsResponse>(`${API_BASE}/logs/sessions/${id}/requests`);
 }
 
 export function getRequestDetail(
   sessionId: string,
-  requestId: string,
-  date?: string
+  requestId: string
 ): Promise<RequestDetail> {
-  const url = date
-    ? `${API_BASE}/logs/sessions/${sessionId}/requests/${requestId}?date=${date}`
-    : `${API_BASE}/logs/sessions/${sessionId}/requests/${requestId}`;
-  return fetchJson<RequestDetail>(url);
+  return fetchJson<RequestDetail>(`${API_BASE}/logs/sessions/${sessionId}/requests/${requestId}`);
+}
+
+export async function getRawLogContent(requestId: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/logs/requests/${requestId}/raw`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${res.status}`);
+  }
+  return res.text();
 }
 
 export async function clearAllLogs(): Promise<{ success: boolean; message: string; deletedCount: number }> {
   const res = await fetch(`${API_BASE}/logs`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function openLogDir(): Promise<{ success: boolean; path: string }> {
+  // Electron 环境下优先使用 shell.openPath，更可靠
+  if (isElectron) {
+    const result = await (window as any).electronAPI.openPath();
+    if (!result.success) {
+      throw new Error(result.error || '打开目录失败');
+    }
+    return { success: true, path: '' };
+  }
+
+  // Web 环境下调用后端 API
+  const res = await fetch(`${API_BASE}/logs/open-dir`, { method: 'POST' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error?.message || `HTTP ${res.status}`);

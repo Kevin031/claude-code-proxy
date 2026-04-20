@@ -73,6 +73,19 @@ class ProxyService {
       console.log(`  请求 ID   : ${req.requestId || 'N/A'}`);
       console.log('-------------------------------------------------------------');
 
+      // 流式响应直接透传，不做深拷贝（流对象含循环引用，序列化会崩溃）
+      if (req.body?.stream) {
+        return {
+          success: true,
+          isStream: true,
+          statusCode: response.status,
+          statusMessage: response.statusText,
+          headers: response.headers,
+          stream: response.data,
+          responseTime,
+        };
+      }
+
       // 安全提取响应体数据
       let responseBody = response.data;
       // 如果响应体是对象，进行深拷贝以避免潜在的循环引用
