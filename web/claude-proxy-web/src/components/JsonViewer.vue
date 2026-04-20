@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, watch, onMounted, onUnmounted, computed } from 'vue'
 import VueJsonPretty from 'vue-json-pretty'
 import 'vue-json-pretty/lib/styles.css'
 
@@ -14,8 +14,49 @@ const matchCount = ref(0)
 const currentMatch = ref(0)
 const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
 const isHovered = ref(false)
+const format = ref<'json' | 'yaml'>('json')
+
+// 将 JSON 转换为 YAML
+const rawYaml = computed(() => {
+  if (format.value === 'json') return ''
+  return jsonToYaml(props.data)
+})
 
 let highlightSpans: HTMLElement[] = []
+
+// JSON 转 YAML 简单实现
+function jsonToYaml(obj: any, indent = 0): string {
+  if (obj === null || obj === undefined) return 'null'
+  if (typeof obj === 'boolean') return obj ? 'true' : 'false'
+  if (typeof obj === 'number') return String(obj)
+  if (typeof obj === 'string') return JSON.stringify(obj)
+
+  if (Array.isArray(obj)) {
+    if (obj.length === 0) return '[]'
+    return obj.map(item => {
+      const str = jsonToYaml(item, indent + 2)
+      if (str.includes('\n')) {
+        return ' '.repeat(indent) + '-\n' + str
+      }
+      return ' '.repeat(indent) + '- ' + str
+    }).join('\n')
+  }
+
+  if (typeof obj === 'object') {
+    const keys = Object.keys(obj)
+    if (keys.length === 0) return '{}'
+    return keys.map(key => {
+      const value = obj[key]
+      const yamlValue = jsonToYaml(value, indent + 2)
+      if (yamlValue.includes('\n')) {
+        return ' '.repeat(indent) + key + ':\n' + yamlValue
+      }
+      return ' '.repeat(indent) + key + ': ' + yamlValue
+    }).join('\n')
+  }
+
+  return String(obj)
+}
 
 // 监听数据变化，重置搜索
 watch(() => props.data, () => {
@@ -26,15 +67,77 @@ watch(() => props.data, () => {
   clearHighlights()
 }, { deep: true })
 
+function escapeHtml(text: string): string {
+  const div = document.createElement('div')
+  div.textContent = text
+  return div.innerHTML
+}
+
+function highlightYaml(yamlStr: string): string {
+  return yamlStr.split('\n').map(line => {
+    // 空行
+    if (!line.trim()) return ''
+
+    // 注释
+    if (line.trim().startsWith('#')) {
+      return `<span class="yaml-comment">${escapeHtml(line)}</span>`
+    }
+
+    // 匹配 key: value 结构
+    const match = line.match(/^(\s*)([^\s:]+)(:\s*)(.*)$/)
+    if (match) {
+      const [, indent, key, colon, value] = match
+      const highlightedValue = highlightYamlValue(value)
+      return `${indent}<span class="yaml-key">${escapeHtml(key)}</span><span class="yaml-colon">${colon}</span>${highlightedValue}`
+    }
+
+    // 列表项 - 开头是 -
+    const listMatch = line.match(/^(\s*-\s*)(.*)$/)
+    if (listMatch) {
+      const [, prefix, value] = listMatch
+      return `${prefix}${highlightYamlValue(value)}`
+    }
+
+    return escapeHtml(line)
+  }).join('\n')
+}
+
+function highlightYamlValue(value: string): string {
+  if (!value.trim()) return ''
+
+  const trimmed = value.trim()
+
+  // null
+  if (trimmed === 'null' || trimmed === '~') {
+    return value.replace(trimmed, `<span class="yaml-null">${trimmed}</span>`)
+  }
+
+  // boolean
+  if (trimmed === 'true' || trimmed === 'false') {
+    return value.replace(trimmed, `<span class="yaml-boolean">${trimmed}</span>`)
+  }
+
+  // number
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return value.replace(trimmed, `<span class="yaml-number">${trimmed}</span>`)
+  }
+
+  // 字符串引号包裹
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return `<span class="yaml-string">${escapeHtml(value)}</span>`
+  }
+
+  // 普通字符串值
+  return `<span class="yaml-string">${escapeHtml(value)}</span>`
+}
+
 function shouldHandleSearch(): boolean {
   if (!containerRef.value) return false
   const active = document.activeElement
   const container = containerRef.value
-  // 1. 焦点在容器或其子元素内
   if (container.contains(active)) return true
-  // 2. 鼠标当前在容器内
   if (isHovered.value) return true
-  // 3. 页面无特定焦点且搜索框已打开（正在搜索时继续响应）
   if (active === document.body && showSearch.value) return true
   return false
 }
@@ -110,7 +213,7 @@ function performSearch() {
   if (!searchQuery.value || !containerRef.value) return
 
   const query = searchQuery.value.toLowerCase()
-  const tree = containerRef.value.querySelector('.vjs-tree')
+  const tree = containerRef.value.querySelector('.vjs-tree, .yaml-viewer')
   if (!tree) return
 
   const walker = document.createTreeWalker(
@@ -199,13 +302,26 @@ function onSearchInputKeydown(e: KeyboardEvent) {
   }
 }
 
-function downloadJson() {
-  const jsonStr = JSON.stringify(props.data, null, 2)
-  const blob = new Blob([jsonStr], { type: 'application/json' })
+function downloadData() {
+  let content: string
+  let mimeType: string
+  let fileName: string
+
+  if (format.value === 'yaml') {
+    content = rawYaml.value
+    mimeType = 'text/yaml'
+    fileName = 'data.yaml'
+  } else {
+    content = JSON.stringify(props.data, null, 2)
+    mimeType = 'application/json'
+    fileName = 'data.json'
+  }
+
+  const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'data.json'
+  a.download = fileName
   a.style.display = 'none'
   document.body.appendChild(a)
   a.click()
@@ -223,7 +339,9 @@ function downloadJson() {
     @mouseleave="isHovered = false"
     @mousedown="containerRef?.focus()"
   >
+    <!-- JSON 模式 -->
     <VueJsonPretty
+      v-if="format === 'json'"
       :data="data"
       :deep="5"
       :show-double-quotes="true"
@@ -235,9 +353,32 @@ function downloadJson() {
       class="custom-json-tree"
     />
 
-    <!-- 下载按钮 -->
-    <div class="jv-download-box" @mousedown.stop>
-      <button class="jv-download-btn" title="下载 JSON" @click="downloadJson">
+    <!-- YAML 模式 -->
+    <pre
+      v-if="format === 'yaml'"
+      class="yaml-viewer"
+      v-html="highlightYaml(rawYaml)"
+    />
+
+    <!-- 格式切换 + 下载按钮 -->
+    <div class="jv-toolbar" @mousedown.stop>
+      <div class="format-toggle">
+        <button
+          class="format-btn"
+          :class="{ active: format === 'json' }"
+          @click="format = 'json'"
+        >
+          JSON
+        </button>
+        <button
+          class="format-btn"
+          :class="{ active: format === 'yaml' }"
+          @click="format = 'yaml'"
+        >
+          YAML
+        </button>
+      </div>
+      <button class="jv-download-btn" title="下载" @click="downloadData">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="7 10 12 15 17 10"/>
@@ -283,12 +424,45 @@ function downloadJson() {
 </template>
 
 <style>
-/* 下载按钮 */
-.jv-download-box {
+/* 工具栏 */
+.jv-toolbar {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   z-index: 10;
+}
+
+.format-toggle {
+  display: flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.format-btn {
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.format-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.format-btn.active {
+  color: var(--accent-blue);
+  background: var(--bg-active);
 }
 
 .jv-download-btn {
@@ -323,7 +497,7 @@ function downloadJson() {
 
 .jv-search-box {
   position: absolute;
-  top: 8px;
+  top: 44px;
   right: 8px;
   display: flex;
   align-items: center;
@@ -401,6 +575,55 @@ function downloadJson() {
 .jv-highlight-active {
   background-color: rgba(251, 191, 36, 0.85);
   outline: 1px solid rgba(251, 191, 36, 1);
+}
+
+/* YAML 查看器 */
+.yaml-viewer {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.9;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-code);
+  border-radius: 8px;
+  border: 1px solid var(--border-tertiary);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+
+.yaml-key {
+  color: var(--json-key);
+  font-weight: 500;
+}
+
+.yaml-colon {
+  color: var(--json-colon);
+}
+
+.yaml-string {
+  color: var(--json-string);
+}
+
+.yaml-number {
+  color: var(--json-number);
+}
+
+.yaml-boolean {
+  color: var(--json-number);
+  font-weight: 600;
+}
+
+.yaml-null {
+  color: var(--json-null);
+  font-style: italic;
+}
+
+.yaml-comment {
+  color: var(--text-tertiary);
+  font-style: italic;
 }
 
 /* 覆盖 vue-json-pretty 默认样式 */

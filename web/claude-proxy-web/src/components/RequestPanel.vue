@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { getSessionRequests, formatDate, type FullLogEntry } from '../api'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { getSessionRequests, formatDate, subscribeLogEvents, type FullLogEntry } from '../api'
 import JsonViewer from './JsonViewer.vue'
 
 const props = defineProps<{
   sessionId: string
-  date: string
 }>()
 
 const requests = ref<FullLogEntry[]>([])
@@ -13,8 +12,11 @@ const selectedRequest = ref<FullLogEntry | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTab = ref<'request' | 'response'>('request')
-const requestListWidth = ref(360)
+const requestListWidth = ref(280)
 const isDraggingRequestList = ref(false)
+
+let loadVersion = 0
+let unsubscribeEvents: (() => void) | null = null
 
 function startDragRequestList(e: MouseEvent) {
   isDraggingRequestList.value = true
@@ -26,7 +28,7 @@ function startDragRequestList(e: MouseEvent) {
 
   function onMove(ev: MouseEvent) {
     const delta = ev.clientX - startX
-    requestListWidth.value = Math.max(260, Math.min(550, startWidth + delta))
+    requestListWidth.value = Math.max(200, Math.min(450, startWidth + delta))
   }
 
   function onUp() {
@@ -41,21 +43,61 @@ function startDragRequestList(e: MouseEvent) {
   window.addEventListener('mouseup', onUp)
 }
 
-async function loadRequests() {
-  loading.value = true
+async function loadRequests(isAuto = false) {
+  const version = ++loadVersion
+
+  if (!isAuto) {
+    loading.value = true
+  }
   error.value = ''
-  selectedRequest.value = null
+
   try {
-    const res = await getSessionRequests(props.sessionId, props.date || undefined)
+    const res = await getSessionRequests(props.sessionId)
+    // 丢弃过期的响应，避免竞态条件
+    if (version !== loadVersion) return
+
     requests.value = res.requests
     if (res.requests.length > 0) {
-      selectedRequest.value = res.requests[0]
+      // 保留当前选中的请求，如果它仍在新的列表中
+      const currentId = selectedRequest.value?.requestId
+      const stillExists = currentId && res.requests.some(r => r.requestId === currentId)
+      if (!stillExists) {
+        selectedRequest.value = res.requests[0]
+      }
+    } else {
+      selectedRequest.value = null
     }
   } catch (err: any) {
+    if (version !== loadVersion) return
     error.value = err.message || '加载失败'
-    requests.value = []
+    if (!isAuto) {
+      requests.value = []
+      selectedRequest.value = null
+    }
   } finally {
-    loading.value = false
+    if (version === loadVersion) {
+      loading.value = false
+    }
+  }
+}
+
+function startEventSubscription() {
+  if (unsubscribeEvents) return
+  try {
+    unsubscribeEvents = subscribeLogEvents((event) => {
+      if (event.type === 'log_updated') {
+        loadRequests(true)
+      }
+    })
+  } catch {
+    // EventSource 不可用（如测试环境），静默忽略
+  }
+}
+
+function stopEventSubscription() {
+  if (unsubscribeEvents) {
+    unsubscribeEvents()
+    unsubscribeEvents = null
   }
 }
 
@@ -71,7 +113,41 @@ function getStatusClass(status: number): string {
   return 'status-5xx'
 }
 
-watch(() => props.sessionId, loadRequests, { immediate: true })
+function getRequestTitle(req: FullLogEntry): string {
+  const messages = req.request?.body?.messages
+  if (!Array.isArray(messages)) {
+    return req.request?.path || ''
+  }
+  // 找到最后一条 role 为 user 的 message
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg?.role === 'user' && Array.isArray(msg.content)) {
+      // 找到 content 中第一个 type 为 text 的项
+      const textItem = msg.content.find((c: any) => c?.type === 'text')
+      if (textItem?.text) {
+        // 去除 system-reminder 标签和多余空白
+        const text = textItem.text
+          .replace(/<system-reminder>.*?<\/system-reminder>/gs, '')
+          .trim()
+        if (text) {
+          // 取第一行作为标题
+          return text.split('\n')[0].trim() || req.request?.path || ''
+        }
+      }
+    }
+  }
+  return req.request?.path || ''
+}
+
+watch(() => props.sessionId, () => loadRequests(false), { immediate: true })
+
+onMounted(() => {
+  startEventSubscription()
+})
+
+onUnmounted(() => {
+  stopEventSubscription()
+})
 </script>
 
 <template>
@@ -94,13 +170,13 @@ watch(() => props.sessionId, loadRequests, { immediate: true })
           :class="{ active: selectedRequest?.requestId === req.requestId }"
           @click="selectedRequest = req"
         >
-          <div class="req-line1">
+          <div class="req-title">
             <span class="method-badge" :class="getMethodClass(req.request.method)">
               {{ req.request.method }}
             </span>
-            <span class="req-path">{{ req.request.path }}</span>
+            <span class="req-title-text">{{ getRequestTitle(req) }}</span>
           </div>
-          <div class="req-line2">
+          <div class="req-meta">
             <span class="status-badge" :class="getStatusClass(req.response.statusCode)">
               {{ req.response.statusCode }}
             </span>
@@ -174,7 +250,7 @@ watch(() => props.sessionId, loadRequests, { immediate: true })
         <!-- Body -->
         <div v-if="selectedRequest.request.body && Object.keys(selectedRequest.request.body).length > 0" class="section">
           <div class="section-title">Body</div>
-          <JsonViewer :data="selectedRequest.request.body" />
+          <JsonViewer :data="selectedRequest.request.body" :request-id="selectedRequest.requestId" />
         </div>
       </div>
 
@@ -194,7 +270,7 @@ watch(() => props.sessionId, loadRequests, { immediate: true })
         <!-- Body -->
         <div v-if="selectedRequest.response.body" class="section">
           <div class="section-title">Body</div>
-          <JsonViewer :data="selectedRequest.response.body" />
+          <JsonViewer :data="selectedRequest.response.body" :request-id="selectedRequest.requestId" />
         </div>
       </div>
     </div>
@@ -290,14 +366,24 @@ watch(() => props.sessionId, loadRequests, { immediate: true })
   box-shadow: inset 0 0 0 1px var(--accent-blue-light);
 }
 
-.req-line1 {
+.req-title {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
 }
 
-.req-line2 {
+.req-title-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.req-meta {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -335,15 +421,6 @@ watch(() => props.sessionId, loadRequests, { immediate: true })
 .method-PATCH {
   background: var(--method-patch-bg);
   color: var(--method-patch);
-}
-
-.req-path {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .status-badge {
